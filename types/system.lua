@@ -1,17 +1,20 @@
 ---@meta
 
+---@type string[]
+ARGV = {}
+
 ---@class systemlib
 system = {}
 
----@type {width: integer, height: integer}
-system.screen = {}
+---@class unibar
+---@field window integer
 
-function system.show_window() end
-function system.end_frame() end
+---@return unibar
+function system.create_unibar() end
 
----@return string # event type
----@return any ... # parameters
+---@param window integer
+function system.show_window(window) end
+
+---@return string
+---@return any ...
 function system.wait_event() end
-
----@param ms integer
-function system.sleep(ms) end

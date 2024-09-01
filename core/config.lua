@@ -1,11 +1,21 @@
 ---@alias module
 ---| string # module name
----| [string, any ...] # module options
+---| any[] # module options
+
+---@class bar
+---@field modules module[]
 
 ---@class config
-return {
+local config = {
 	---@type string[]
 	fonts = {},
-	---@type module[]
-	modules = {},
+  ---@type bar[]
+  bars = {}
 }
+
+---@param cfg bar
+function config.create_bar(cfg)
+  table.insert(config.bars, cfg)
+end
+
+return config
