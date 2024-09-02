@@ -1,6 +1,6 @@
 project('unibar', 'c',
   license: 'Apache-2.0',
-  default_options: ['warning_level=3'],
+  default_options: ['warning_level=3', 'c_std=c23'],
   version: '0.1.0')
 
 lua_dep = dependency('lua')

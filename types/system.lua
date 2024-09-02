@@ -8,12 +8,17 @@ system = {}
 
 ---@class unibar
 ---@field window integer
+local unibar = {}
+
+---@param cmd string
+function unibar:draw(cmd, ...) end
+
+function unibar:draw() end
+
+function unibar:show() end
 
 ---@return unibar
 function system.create_unibar() end
-
----@param window integer
-function system.show_window(window) end
 
 ---@return string
 ---@return any ...

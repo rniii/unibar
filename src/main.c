@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#define UNIBAR_TYPE "unibar"
+
 xcb_connection_t *connection;
 xcb_ewmh_connection_t ewmh;
 
@@ -22,31 +24,41 @@ typedef struct {
   cairo_t *cr;
 } unibar_t;
 
-static int f_create_unibar(lua_State *L) {
+static int lua_create_unibar(lua_State *L) {
   // TODO: allow selecting screen number
   xcb_screen_t *screen = xcb_aux_get_screen(connection, 0);
 
   xcb_window_t window = xcb_generate_id(connection);
 
+  uint16_t width = screen->width_in_pixels - 16;
+  uint16_t height = 34;
+
   uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
   uint32_t values[2] = {
     screen->white_pixel, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE};
   xcb_create_window(connection, screen->root_depth, window, screen->root, 8, 8,
-    screen->width_in_pixels - 16, 32, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT,
-    screen->root_visual, mask, values);
+    width, height, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, mask,
+    values);
 
   char wm_class[] = "unibar";
-  xcb_icccm_set_wm_class(connection, window, sizeof(wm_class), wm_class);
   xcb_atom_t wm_state[] = {ewmh._NET_WM_STATE_ABOVE};
-  xcb_ewmh_set_wm_state(&ewmh, window, 1, wm_state);
   xcb_atom_t wm_window_type[] = {ewmh._NET_WM_WINDOW_TYPE_DOCK};
+  xcb_icccm_set_wm_class(connection, window, sizeof(wm_class), wm_class);
+  xcb_ewmh_set_wm_state(&ewmh, window, 1, wm_state);
   xcb_ewmh_set_wm_window_type(&ewmh, window, 1, wm_window_type);
 
   xcb_visualtype_t *visual =
     xcb_aux_get_visualtype(connection, 0, screen->root_visual);
   cairo_surface_t *surface =
-    cairo_xcb_surface_create(connection, window, visual, 150, 150);
+    cairo_xcb_surface_create(connection, window, visual, width, height);
   cairo_t *cr = cairo_create(surface);
+
+  cairo_select_font_face(
+    cr, "@cairo:", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+  cairo_set_font_size(cr, 16);
+  cairo_set_source_rgb(cr, 0, 0, 0);
+
+  xcb_flush(connection);
 
   unibar_t *unibar = lua_newuserdata(L, sizeof(unibar_t));
   unibar->screen = screen;
@@ -54,32 +66,13 @@ static int f_create_unibar(lua_State *L) {
   unibar->surface = surface;
   unibar->cr = cr;
 
-  luaL_setmetatable(L, "unibar");
+  luaL_setmetatable(L, UNIBAR_TYPE);
 
   return 1;
 }
 
-static int f_get_unibar_prop(lua_State *L) {
-  unibar_t *unibar = lua_touserdata(L, 1);
-  lua_pushinteger(L, unibar->window);
-
-  const char *props[] = {"window"};
-  int prop = luaL_checkoption(L, 2, NULL, props);
-
-  lua_settop(L, 1);
-
-  switch (prop) {
-  case 0:
-    lua_pushinteger(L, unibar->window);
-    return 1;
-  default:
-    return 0;
-  }
-}
-
-static int f_destroy_unibar(lua_State *L) {
-  unibar_t *unibar = lua_touserdata(L, 1);
-
+static int lua_destroy_unibar(lua_State *L) {
+  unibar_t *unibar = luaL_checkudata(L, 1, UNIBAR_TYPE);
   free(unibar->screen);
   xcb_destroy_window(connection, unibar->window);
   cairo_surface_destroy(unibar->surface);
@@ -88,34 +81,97 @@ static int f_destroy_unibar(lua_State *L) {
   return 0;
 }
 
-static int f_show_window(lua_State *L) {
-  xcb_window_t window = luaL_checkinteger(L, 1);
-  xcb_map_window(connection, window);
+static int lua_set_cairo_source(lua_State *L, int idx) {
+  unibar_t *unibar = lua_touserdata(L, 1);
+
+  switch (lua_type(L, idx)) {
+  case LUA_TNUMBER:
+    double r, g, b;
+    r = lua_tonumber(L, idx + 0);
+    g = lua_tonumber(L, idx + 1);
+    b = lua_tonumber(L, idx + 2);
+    cairo_set_source_rgb(unibar->cr, r, g, b);
+    return 0;
+  default:
+    return 0;
+  }
+}
+
+static int lua_draw_unibar(lua_State *L) {
+  unibar_t *unibar = luaL_checkudata(L, 1, UNIBAR_TYPE);
+
+  const char *commands[] = {"flush", "stroke", "fill", "paint", "text"};
+  int opt = luaL_checkoption(L, 2, "flush", commands);
+
+  switch (opt) {
+  case 0: // flush
+    cairo_surface_flush(unibar->surface);
+    xcb_flush(connection);
+    return 0;
+  case 1: // stroke
+    return 0;
+  case 2: // fill
+    return 0;
+  case 3: // paint
+    lua_set_cairo_source(L, 2);
+    cairo_paint(unibar->cr);
+    return 0;
+  case 4: // text
+    const char *text = luaL_checkstring(L, 2);
+    lua_set_cairo_source(L, 3);
+    cairo_show_text(unibar->cr, text);
+    return 0;
+  default:
+    return 0;
+  }
+}
+
+static int lua_show_unibar(lua_State *L) {
+  unibar_t *unibar = luaL_checkudata(L, 1, UNIBAR_TYPE);
+  xcb_map_window(connection, unibar->window);
   xcb_flush(connection);
 
   return 0;
 }
 
-static int f_wait_event(lua_State *L) {
+static int lua_index_unibar(lua_State *L) {
+  unibar_t *unibar = luaL_checkudata(L, 1, UNIBAR_TYPE);
+
+  const char *props[] = {"window", "draw", "show", NULL};
+  switch (luaL_checkoption(L, 2, NULL, props)) {
+  case 0:
+    lua_pushinteger(L, unibar->window);
+    return 1;
+  case 1:
+    lua_pushcfunction(L, lua_draw_unibar);
+    return 1;
+  case 2:
+    lua_pushcfunction(L, lua_show_unibar);
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+static int lua_wait_event(lua_State *L) {
   xcb_generic_event_t *event;
 
   while ((event = xcb_wait_for_event(connection))) {
     switch (event->response_type & ~0x80) {
-    case 0: {
+    case 0:
       fprintf(stderr, "X11 Error: %s\n",
         xcb_event_get_error_label(((xcb_generic_error_t *)event)->error_code));
       free(event);
       continue;
-    }
-    case XCB_BUTTON_PRESS: {
+    case XCB_BUTTON_PRESS:
       xcb_button_press_event_t *press = (xcb_button_press_event_t *)event;
       lua_pushstring(L, "mousepress");
+      lua_pushinteger(L, press->event);
       lua_pushinteger(L, press->detail);
       lua_pushinteger(L, press->event_x);
       lua_pushinteger(L, press->event_y);
       free(event);
-      return 4;
-    }
+      return 5;
     default:
       free(event);
       continue;
@@ -125,11 +181,14 @@ static int f_wait_event(lua_State *L) {
   return 0;
 }
 
-static const luaL_Reg sys_lib[] = {{"create_unibar", f_create_unibar},
-  {"show_window", f_show_window}, {"wait_event", f_wait_event}, {NULL, NULL}};
+static int open_system(lua_State *L) {
+  const luaL_Reg system_lib[] = {
+    {"create_unibar", lua_create_unibar},
+    {"wait_event", lua_wait_event},
+    {NULL, NULL},
+  };
+  luaL_newlib(L, system_lib);
 
-static int open_sys(lua_State *L) {
-  luaL_newlib(L, sys_lib);
   return 1;
 }
 
@@ -153,14 +212,14 @@ int main(int argc, char **argv) {
 
   lua_State *L = luaL_newstate();
 
-  luaL_newmetatable(L, "unibar");
-  lua_pushcfunction(L, f_get_unibar_prop);
-  lua_setfield(L, -2, "__index");
-  lua_pushcfunction(L, f_destroy_unibar);
-  lua_setfield(L, -2, "__gc");
-
-  luaL_openlibs(L);
-  luaL_requiref(L, "system", open_sys, 1);
+  luaL_newmetatable(L, UNIBAR_TYPE);
+  const luaL_Reg unibar_mt[] = {
+    {"__index", lua_index_unibar},
+    {"__gc", lua_destroy_unibar},
+    {NULL, NULL},
+  };
+  luaL_setfuncs(L, unibar_mt, 0);
+  lua_pop(L, 1);
 
   lua_createtable(L, argc, 0);
   for (int i = 0; i < argc; i++) {
@@ -168,6 +227,9 @@ int main(int argc, char **argv) {
     lua_seti(L, -2, i + 1);
   }
   lua_setglobal(L, "ARGV");
+
+  luaL_openlibs(L);
+  luaL_requiref(L, "system", open_system, 1);
 
   (void)luaL_dostring(L, "require('core').run()");
 
