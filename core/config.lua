@@ -3,6 +3,7 @@
 ---| any[] # module options
 
 ---@class bar
+---@field background string?
 ---@field modules module[]
 
 ---@class config

@@ -28,17 +28,25 @@ static int lua_create_unibar(lua_State *L) {
   // TODO: allow selecting screen number
   xcb_screen_t *screen = xcb_aux_get_screen(connection, 0);
 
-  xcb_window_t window = xcb_generate_id(connection);
+  uint8_t depth = 32;
+  xcb_visualtype_t *visual =
+    xcb_aux_find_visual_by_attrs(screen, XCB_VISUAL_CLASS_TRUE_COLOR, depth);
+  if (!visual) {
+    visual = xcb_aux_find_visual_by_id(screen, screen->root_visual);
+    depth = screen->root_depth;
+  }
 
   uint16_t width = screen->width_in_pixels - 16;
   uint16_t height = 34;
+  uint16_t x = 8, y = 8;
 
   uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
-  uint32_t values[2] = {
-    screen->white_pixel, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE};
-  xcb_create_window(connection, screen->root_depth, window, screen->root, 8, 8,
-    width, height, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, mask,
-    values);
+  uint32_t values[] = {
+    0xffffff, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE};
+
+  xcb_window_t window = xcb_generate_id(connection);
+  xcb_create_window(connection, depth, window, screen->root, x, y, width,
+    height, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, visual->visual_id, mask, values);
 
   char wm_class[] = "unibar";
   xcb_atom_t wm_state[] = {ewmh._NET_WM_STATE_ABOVE};
@@ -47,8 +55,6 @@ static int lua_create_unibar(lua_State *L) {
   xcb_ewmh_set_wm_state(&ewmh, window, 1, wm_state);
   xcb_ewmh_set_wm_window_type(&ewmh, window, 1, wm_window_type);
 
-  xcb_visualtype_t *visual =
-    xcb_aux_get_visualtype(connection, 0, screen->root_visual);
   cairo_surface_t *surface =
     cairo_xcb_surface_create(connection, window, visual, width, height);
   cairo_t *cr = cairo_create(surface);
@@ -73,7 +79,6 @@ static int lua_create_unibar(lua_State *L) {
 
 static int lua_destroy_unibar(lua_State *L) {
   unibar_t *unibar = luaL_checkudata(L, 1, UNIBAR_TYPE);
-  free(unibar->screen);
   xcb_destroy_window(connection, unibar->window);
   cairo_surface_destroy(unibar->surface);
   cairo_destroy(unibar->cr);
@@ -86,11 +91,12 @@ static int lua_set_cairo_source(lua_State *L, int idx) {
 
   switch (lua_type(L, idx)) {
   case LUA_TNUMBER:
-    double r, g, b;
+    double r, g, b, a;
     r = lua_tonumber(L, idx + 0);
     g = lua_tonumber(L, idx + 1);
     b = lua_tonumber(L, idx + 2);
-    cairo_set_source_rgb(unibar->cr, r, g, b);
+    a = lua_isnil(L, idx + 3) ? 1 : lua_tonumber(L, idx + 3);
+    cairo_set_source_rgba(unibar->cr, r, g, b, a);
     return 0;
   default:
     return 0;
@@ -100,7 +106,7 @@ static int lua_set_cairo_source(lua_State *L, int idx) {
 static int lua_draw_unibar(lua_State *L) {
   unibar_t *unibar = luaL_checkudata(L, 1, UNIBAR_TYPE);
 
-  const char *commands[] = {"flush", "stroke", "fill", "paint", "text"};
+  const char *commands[] = {"flush", "stroke", "fill", "paint", "text", NULL};
   int opt = luaL_checkoption(L, 2, "flush", commands);
 
   switch (opt) {
@@ -119,6 +125,7 @@ static int lua_draw_unibar(lua_State *L) {
   case 4: // text
     const char *text = luaL_checkstring(L, 2);
     lua_set_cairo_source(L, 3);
+    cairo_move_to(unibar->cr, 0, 0);
     cairo_show_text(unibar->cr, text);
     return 0;
   default:
@@ -231,11 +238,12 @@ int main(int argc, char **argv) {
   luaL_openlibs(L);
   luaL_requiref(L, "system", open_system, 1);
 
-  (void)luaL_dostring(L, "require('core').run()");
+  luaL_dostring(L, "return require('core').run()");
+  int ret = lua_tonumber(L, -1);
 
   lua_close(L);
 
   xcb_disconnect(connection);
 
-  return 0;
+  return ret;
 }
