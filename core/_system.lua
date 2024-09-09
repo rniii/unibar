@@ -14,10 +14,14 @@ function unibar:show() end
 ARGV = {}
 
 ---@class systemlib
-system = {}
+system = {
+  ---@type { width: integer, height: integer }[]
+  screens = {}
+}
 
+---@param bar any
 ---@return unibar
-function system.create_unibar() end
+function system.create_unibar(bar) end
 
 ---@return string
 ---@return any ...

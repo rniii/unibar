@@ -1,7 +1,11 @@
 local config = require "core.config"
 local core = {}
 
----@type table<integer, unibar>
+---@class corebar
+---@field bg integer[]
+---@field inner unibar
+
+---@type table<integer, corebar>
 core.bars = {}
 
 ---@param hex string
@@ -22,24 +26,23 @@ local function color(hex)
 	end
 
 	local i, _, r, g, b, a = hex:find(pat)
-  if i == nil then
-    warn("invalid color: " .. hex)
-    return 0, 0, 0
-  end
+	if i == nil then
+		warn("invalid color: " .. hex)
+		return 0, 0, 0
+	end
 
 	return num(r), num(g), num(b), a and num(a)
 end
 
 function core.redraw()
-	for _, bar in pairs(core.bars) do
-		bar:draw("paint", color("#151515"))
-		bar:draw("text", "meow", color("#d8d0d5"))
-		bar:draw()
+	for _, bar in ipairs(core.bars) do
+		bar.inner:draw("paint", table.unpack(bar.bg))
+		bar.inner:draw()
 	end
 end
 
 function core.main()
-  warn("@on")
+	warn("@on")
 
 	local config_dir = os.getenv("XDG_CONFIG_HOME") or os.getenv("HOME") .. "/.config"
 	package.path = config_dir .. "/unibar/?.lua;" .. package.path
@@ -48,8 +51,24 @@ function core.main()
 	assert(pcall(require, "config"), "No config found!")
 
 	for _, cfg in ipairs(config.bars) do
-		local bar = system.create_unibar()
-		core.bars[bar.window] = bar
+		local screen_num = cfg.screen or 1
+		local screen = system.screens[screen_num]
+
+		local rect
+		local border = cfg.border or 0
+		local height = cfg.height or 34
+		if cfg.side == "bottom" then
+			rect = { border, screen.height - height - border, screen.width - border * 2, height }
+		else
+			rect = { border, border, screen.width - border * 2, height }
+		end
+
+		local bar = system.create_unibar { screen = screen_num, rect = rect }
+
+		core.bars[bar.window] = {
+			bg = table.pack(color(cfg.background or "#181818fa")),
+			inner = bar,
+		}
 
 		bar:show()
 	end

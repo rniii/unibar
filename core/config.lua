@@ -2,7 +2,11 @@
 ---| string # module name
 ---| any[] # module options
 
----@class bar
+---@class bar_config
+---@field screen integer?
+---@field side "top" | "bottom"
+---@field height integer?
+---@field border integer?
 ---@field background string?
 ---@field modules module[]
 
@@ -10,11 +14,11 @@
 local config = {
 	---@type string[]
 	fonts = {},
-  ---@type bar[]
+  ---@type bar_config[]
   bars = {}
 }
 
----@param cfg bar
+---@param cfg bar_config
 function config.create_bar(cfg)
   table.insert(config.bars, cfg)
 end

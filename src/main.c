@@ -19,34 +19,50 @@ xcb_ewmh_connection_t ewmh;
 typedef struct {
   xcb_screen_t *screen;
   xcb_window_t window;
-
-  cairo_surface_t *surface;
+  xcb_visualtype_t *visual;
+  cairo_surface_t *sf;
   cairo_t *cr;
 } unibar_t;
 
 static int lua_create_unibar(lua_State *L) {
-  // TODO: allow selecting screen number
-  xcb_screen_t *screen = xcb_aux_get_screen(connection, 0);
+  lua_getfield(L, 1, "screen");
+  int screen_idx = lua_tonumber(L, 2) - 1;
+
+  lua_getfield(L, 1, "rect");
+  int x, y, w, h;
+  lua_geti(L, 3, 1), x = lua_tonumber(L, 4);
+  lua_geti(L, 3, 2), y = lua_tonumber(L, 5);
+  lua_geti(L, 3, 3), w = lua_tonumber(L, 6);
+  lua_geti(L, 3, 4), h = lua_tonumber(L, 7);
+
+  xcb_screen_t *screen = xcb_aux_get_screen(connection, screen_idx);
+  if (!screen) {
+    luaL_error(L, "No such screen: %i", screen_idx);
+    return 0;
+  }
 
   uint8_t depth = 32;
   xcb_visualtype_t *visual =
     xcb_aux_find_visual_by_attrs(screen, XCB_VISUAL_CLASS_TRUE_COLOR, depth);
-  if (!visual) {
+  xcb_colormap_t colormap;
+  if (visual) {
+    colormap = xcb_generate_id(connection);
+    xcb_create_colormap(connection, XCB_COLORMAP_ALLOC_NONE, colormap,
+      screen->root, visual->visual_id);
+  } else {
+    colormap = XCB_COPY_FROM_PARENT;
     visual = xcb_aux_find_visual_by_id(screen, screen->root_visual);
     depth = screen->root_depth;
   }
 
-  uint16_t width = screen->width_in_pixels - 16;
-  uint16_t height = 34;
-  uint16_t x = 8, y = 8;
-
-  uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
+  uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK |
+    XCB_CW_COLORMAP;
   uint32_t values[] = {
-    0xffffff, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE};
+    0, 0, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE, colormap};
 
   xcb_window_t window = xcb_generate_id(connection);
-  xcb_create_window(connection, depth, window, screen->root, x, y, width,
-    height, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, visual->visual_id, mask, values);
+  xcb_create_window(connection, depth, window, screen->root, x, y, w, h, 0,
+    XCB_WINDOW_CLASS_INPUT_OUTPUT, visual->visual_id, mask, values);
 
   char wm_class[] = "unibar";
   xcb_atom_t wm_state[] = {ewmh._NET_WM_STATE_ABOVE};
@@ -55,21 +71,21 @@ static int lua_create_unibar(lua_State *L) {
   xcb_ewmh_set_wm_state(&ewmh, window, 1, wm_state);
   xcb_ewmh_set_wm_window_type(&ewmh, window, 1, wm_window_type);
 
-  cairo_surface_t *surface =
-    cairo_xcb_surface_create(connection, window, visual, width, height);
-  cairo_t *cr = cairo_create(surface);
+  cairo_surface_t *sf =
+    cairo_xcb_surface_create(connection, window, visual, w, h);
+  cairo_t *cr = cairo_create(sf);
 
   cairo_select_font_face(
     cr, "@cairo:", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
   cairo_set_font_size(cr, 16);
-  cairo_set_source_rgb(cr, 0, 0, 0);
 
   xcb_flush(connection);
 
   unibar_t *unibar = lua_newuserdata(L, sizeof(unibar_t));
   unibar->screen = screen;
   unibar->window = window;
-  unibar->surface = surface;
+  unibar->visual = visual;
+  unibar->sf = sf;
   unibar->cr = cr;
 
   luaL_setmetatable(L, UNIBAR_TYPE);
@@ -80,7 +96,7 @@ static int lua_create_unibar(lua_State *L) {
 static int lua_destroy_unibar(lua_State *L) {
   unibar_t *unibar = luaL_checkudata(L, 1, UNIBAR_TYPE);
   xcb_destroy_window(connection, unibar->window);
-  cairo_surface_destroy(unibar->surface);
+  cairo_surface_destroy(unibar->sf);
   cairo_destroy(unibar->cr);
 
   return 0;
@@ -111,7 +127,7 @@ static int lua_draw_unibar(lua_State *L) {
 
   switch (opt) {
   case 0: // flush
-    cairo_surface_flush(unibar->surface);
+    cairo_surface_flush(unibar->sf);
     xcb_flush(connection);
     return 0;
   case 1: // stroke
@@ -156,7 +172,7 @@ static int lua_index_unibar(lua_State *L) {
     lua_pushcfunction(L, lua_show_unibar);
     return 1;
   default:
-    return 0;
+    unreachable();
   }
 }
 
@@ -196,6 +212,20 @@ static int open_system(lua_State *L) {
   };
   luaL_newlib(L, system_lib);
 
+  xcb_screen_iterator_t roots =
+    xcb_setup_roots_iterator(xcb_get_setup(connection));
+  int i = 1;
+  lua_createtable(L, roots.rem, 0);
+  for (; roots.rem; xcb_screen_next(&roots)) {
+    lua_newtable(L);
+    lua_pushinteger(L, roots.data->width_in_pixels);
+    lua_setfield(L, -2, "width");
+    lua_pushinteger(L, roots.data->height_in_pixels);
+    lua_setfield(L, -2, "height");
+    lua_seti(L, -2, i++);
+  }
+  lua_setfield(L, -2, "screens");
+
   return 1;
 }
 
@@ -219,12 +249,12 @@ int main(int argc, char **argv) {
 
   lua_State *L = luaL_newstate();
 
-  luaL_newmetatable(L, UNIBAR_TYPE);
   const luaL_Reg unibar_mt[] = {
     {"__index", lua_index_unibar},
     {"__gc", lua_destroy_unibar},
     {NULL, NULL},
   };
+  luaL_newmetatable(L, UNIBAR_TYPE);
   luaL_setfuncs(L, unibar_mt, 0);
   lua_pop(L, 1);
 
