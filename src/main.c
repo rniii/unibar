@@ -15,6 +15,7 @@
 
 xcb_connection_t *connection;
 xcb_ewmh_connection_t ewmh;
+int default_screen;
 
 typedef struct {
   xcb_screen_t *screen;
@@ -58,7 +59,7 @@ static int lua_create_unibar(lua_State *L) {
   uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK |
     XCB_CW_COLORMAP;
   uint32_t values[] = {
-    0, 0, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE, colormap};
+    0xffffffff, 0, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE, colormap};
 
   xcb_window_t window = xcb_generate_id(connection);
   xcb_create_window(connection, depth, window, screen->root, x, y, w, h, 0,
@@ -224,15 +225,15 @@ static int open_system(lua_State *L) {
     lua_setfield(L, -2, "height");
     lua_seti(L, -2, i++);
   }
+  lua_pushinteger(L, default_screen + 1);
+  lua_setfield(L, -2, "default");
   lua_setfield(L, -2, "screens");
 
   return 1;
 }
 
 int main(int argc, char **argv) {
-  int screen_num = 0;
-
-  connection = xcb_connect(NULL, &screen_num);
+  connection = xcb_connect(NULL, &default_screen);
   if (xcb_connection_has_error(connection)) {
     fprintf(stderr, "Failed to connect to X display.");
     xcb_disconnect(connection);

@@ -4,7 +4,7 @@
 
 ---@class bar_config
 ---@field screen integer?
----@field side "top" | "bottom"
+---@field side "top" | "bottom"?
 ---@field height integer?
 ---@field border integer?
 ---@field background string?

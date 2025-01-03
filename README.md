@@ -6,28 +6,17 @@ A pretty, pretty fast and pretty extensible status bar written in Lua.
 
 <!-- maid-tasks -->
 
-### setup
-
-```sh
-export CC=clang
-meson setup build/debug -Dbuildtype=debugoptimized
-meson setup build/release -Dbuildtype=release
-```
-
 ### build
 
 ```sh
-[ -d build ] || maid setup; ninja -C build/debug
-```
-
-### release
-
-```sh
-[ -d build ] || maid setup; ninja -C build/release
+mkdir -p build
+cd build; zig build-exe --name unibar \
+  $(pkg-config --cflags-only-I --libs-only-l cairo lua xcb{,-icccm,-ewmh,-util}) \
+  ../src/main.zig
 ```
 
 ### run
 
 ```sh
-maid build && ./build/debug/unibar
+maid build && ./build/unibar
 ```
