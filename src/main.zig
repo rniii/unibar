@@ -27,6 +27,13 @@ pub fn main() !void {
 
     c.luaL_openlibs(lua);
     Unibar.open(lua);
+
+    _ = c.lua_getglobal(lua, "require");
+    _ = c.lua_pushstring(lua, "core");
+    c.lua_callk(lua, 1, 1, 0, null);
+    _ = c.lua_getfield(lua, -1, "run");
+    c.lua_callk(lua, 0, 1, 0, null);
+    assert(c.lua_tointegerx(lua, -1, null) == 0);
 }
 
 pub const c = @cImport({

@@ -23,7 +23,7 @@ pub fn lua_create(lua: ?*c.lua_State) callconv(.C) c_int {
     const screen_num: c_int = @intCast(c.lua_tointegerx(lua, 2, null));
 
     _ = c.lua_getfield(lua, 1, "rect");
-    var rect: @Vector(4, c_int) = @splat(0);
+    var rect: @Vector(4, u15) = @splat(0);
     inline for (0..4) |i| {
         _ = c.lua_geti(lua, 3, i + 1);
         rect[i] = @intCast(c.lua_tointegerx(lua, 4 + i, null));
@@ -47,6 +47,33 @@ pub fn lua_create(lua: ?*c.lua_State) callconv(.C) c_int {
         screen.*.root,
         visual.*.visual_id,
     );
+
+    const window = c.xcb_generate_id(root.conn);
+    _ = c.xcb_create_window(
+        root.conn,
+        32,
+        window,
+        screen.*.root,
+        rect[0],
+        rect[1],
+        rect[2],
+        rect[3],
+        0,
+        c.XCB_WINDOW_CLASS_INPUT_OUTPUT,
+        visual.*.visual_id,
+        c.XCB_CW_EVENT_MASK | c.XCB_CW_COLORMAP,
+        &[_]u32{ c.XCB_EVENT_MASK_BUTTON_PRESS | c.XCB_EVENT_MASK_EXPOSURE, colormap },
+    );
+
+    const sf = c.cairo_xcb_surface_create(root.conn, window, visual, rect[1], rect[2]);
+    const cr = c.cairo_create(sf);
+
+    const unibar: *Unibar = @ptrCast(@alignCast(c.lua_newuserdata(lua, @sizeOf(Unibar))));
+    unibar.screen = screen;
+    unibar.window = window;
+    unibar.visual = visual;
+    unibar.sf = sf.?;
+    unibar.cr = cr.?;
 
     return 0;
 }
